@@ -304,9 +304,9 @@ readbyte2
             and  #$0f
             sta  FOUND_SECT
 
-            jsr  showfoundvolume
-            jsr  showfoundtrack
-            jsr  showfoundsector
+            ; jsr  showfoundvolume
+            ; jsr  showfoundtrack
+            ; jsr  showfoundsector
             lda  FOUND_SECT
             and  #$0f
             jsr  touchsect
