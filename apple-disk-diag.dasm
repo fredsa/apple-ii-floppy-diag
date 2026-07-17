@@ -23,6 +23,21 @@ CH          equ  $24
 CV          equ  $25
 
 ; --------------------------------------------------
+; Layout
+; --------------------------------------------------
+target_track_pos equ $0117
+
+volume_pos  equ  $040c
+track_pos   equ  $0417
+sect_pos    equ  $0423
+
+touchsect_pos equ $0404
+touchsect_addr equ $0700
+
+writeprotect_pos equ $0800
+writeprotect_addr equ $0436
+
+; --------------------------------------------------
 ; Scratch space
 ; --------------------------------------------------
 ; $06-$09 - Free Space
@@ -41,6 +56,7 @@ FOUND_VOLUME equ $CE
 TEMP1       equ  $D7
 
 ; $E3     - Free Space
+SPINNER     equ  $E3
 
 ; $EB-$EF - Free Space
 
@@ -204,6 +220,30 @@ pgmstart
             jsr  CROUT
 
             ; --------------------------------------------------
+            ; Layout text
+            ; --------------------------------------------------
+            lda  #>target_track_pos
+            sta  CV
+            jsr  VTAB
+            lda  #$00
+            print t_target_track
+
+            lda  #>volume_pos
+            sta  CV
+            jsr  VTAB
+            lda  #$00
+            sta  CH
+            print t_volume_track_sect
+
+            lda  #>writeprotect_pos
+            sta  CV
+            jsr  VTAB
+            lda  #<writeprotect_pos
+            sta  CH
+            print t_write_protect
+
+
+            ; --------------------------------------------------
             ; Init
             ; --------------------------------------------------
             jsr  setupiob
@@ -255,12 +295,25 @@ pgmstart
 ;             bmi  nextsect
 
 
-            ; --------------------------------------------------
-            ; Free wheeling
-            ; --------------------------------------------------
+; --------------------------------------------------
+; Free wheeling
+; --------------------------------------------------
 freewheelloop
-            inc  $0400 ; alive indicator
+            ; --------------------------------------------------
+            ; Spinner
+            ; --------------------------------------------------
+            inc  SPINNER
+            lda  SPINNER
+            and  #%11
+            sta  SPINNER
+            tax
+            lda  spinnerchars,x
+            ora  #$80
+            sta  $0427
 
+            ; --------------------------------------------------
+            ; Prepare for disk access
+            ; --------------------------------------------------
             ldx  DISK_SLOT ; Restore X
 
             LDA  DRV0EN,x
@@ -304,9 +357,9 @@ readbyte2
             and  #$0f
             sta  FOUND_SECT
 
-            ; jsr  showfoundvolume
-            ; jsr  showfoundtrack
-            ; jsr  showfoundsector
+            jsr  showfoundvolume
+            jsr  showfoundtrack
+            jsr  showfoundsector
             lda  FOUND_SECT
             and  #$0f
             jsr  touchsect
@@ -348,20 +401,16 @@ nokey
 ; --------------------------------------------------
 ; Display write protect stats
 ; --------------------------------------------------
-showwp      lda  #$10
-            sta  CV
-            jsr  VTAB
-            lda  #$00
-            sta  CH
-            ldx  DISK_SLOT
+showwp      ldx  DISK_SLOT
             lda  Q6H,x ; Sense WP
             LDA  Q7L,x ; Sense WP
             bmi  write_protected
-            print t_write_enabled
+            lda  #'N | $80
             jmp  end_write_protect
 write_protected
-            print t_write_protected
+            lda  #'Y | $80
 end_write_protect
+            sta  writeprotect_addr
             jsr  CROUT
             rts
 
@@ -372,10 +421,10 @@ clearsect   ldy  #15
 clearsectloop
             tya
             asl
-            adc  #2
+            adc  #<touchsect_pos
             tax
             lda  #'_ | $80
-            sta  $0600,x
+            sta  touchsect_addr,x
             dey
             bpl  clearsectloop
 endclearsect
@@ -387,16 +436,16 @@ touchsect   tax
             tay
             txa
             asl
-            adc  #2
+            adc  #<touchsect_pos
             tax
             lda  hexchars,y
             ora  #$80
             and  #$bf
-            cmp  $0600,x
+            cmp  touchsect_addr,x
             bne  endtouchsect
             eor  #$80
 endtouchsect
-            sta  $0600,x
+            sta  touchsect_addr,x
             rts
 
 printnibble
@@ -413,10 +462,6 @@ printnibble
 
 printhex
             stx  SAVEX
-            pha
-            lda  #'$ | $80
-            jsr  COUT
-            pla
             pha
             and  #$f0
             lsr
@@ -439,46 +484,41 @@ printhex
             rts
 
 showtrack
-            lda  #$02
+            lda  #>target_track_pos
             sta  CV
             jsr  VTAB
-            lda  #$00
+            lda  #<target_track_pos
             sta  CH
-            print t_target_track
             lda  DISK_TRACK
             jsr  printhex
             rts
 
 showfoundvolume
-            lda  #$06
+            lda  #>volume_pos
             sta  CV
             jsr  VTAB
-            lda  #$00
+            lda  #<volume_pos
             sta  CH
-            print t_volume
             lda  FOUND_VOLUME
             jsr  printhex
 
 showfoundtrack
-            lda  #$07
+            lda  #>track_pos
             sta  CV
             jsr  VTAB
-            lda  #$00
+            lda  #<track_pos
             sta  CH
-            print t_track
             lda  FOUND_TRACK
             jsr  printhex
 
 showfoundsector
-            lda  #$08
+            lda  #>sect_pos
             sta  CV
             jsr  VTAB
-            lda  #$00
+            lda  #<sect_pos
             sta  CH
-            print t_sector
             lda  FOUND_SECT
             jsr  printhex
-
 
 
 ; --------------------------------------------------
@@ -538,17 +578,16 @@ nodiskerr
 ; --------------------------------------------------
 ; Messages
 ; --------------------------------------------------
-t_target_track byte "TARGET TRACK ",0
-t_write_protected byte "WRITE PROTECTED",0
-t_write_enabled byte "WRITE ENABLED  ",0
+t_target_track
+            byte "TARGET:          TRACK __",13
+            byte "========================================",0
+t_write_protect byte "WRITE PROTECT _",0
 t_err       byte "ERR ",0
-t_volume    byte "VOLUME ",0
-t_track     byte "TRACK  ",0
-t_sector     byte "SECTOR ",0
-
+t_volume_track_sect byte "READ  : VOL __   TRACK __   SECTOR __",0
 ; --------------------------------------------------
 ; Data
 ; --------------------------------------------------
+spinnerchars byte ":/-\\"
 hexchars    byte "0123456789ABCDEF"
 sects_appledos byte 0,13,11,9,7,5,3,1,14,12,10,8,6,4,2,15
 sectoffset  byte
