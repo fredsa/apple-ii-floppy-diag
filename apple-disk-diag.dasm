@@ -22,35 +22,16 @@ PGM_LENGTH  equ  PGM_END - pgmstart
 CH          equ  $24
 CV          equ  $25
 
-; --------------------------------------------------
-; Layout
-; --------------------------------------------------
-target_track_pos equ $0117
 
-volume_pos  equ  $040c
-track_pos   equ  $0417
-sect_pos    equ  $0423
-
-touchsect_pos equ $0404
-touchsect_addr equ $0700
-
-writeprotect_pos equ $0800
-writeprotect_addr equ $0436
 
 ; --------------------------------------------------
 ; Scratch space
 ; --------------------------------------------------
 ; $06-$09 - Free Space
-SAVEX       equ  $06
-PRINTPTRL   equ  $07
-PRINTPTRH   equ  $08
 
 ; $1D-$1E - Free Space
-FOUND_TRACK equ  $1D
-FOUND_SECT  equ  $1E
 
 ; $CE-$CF - Free Space
-FOUND_VOLUME equ $CE
 
 ; $D7     - Free Space
 TEMP1       equ  $D7
@@ -59,8 +40,17 @@ TEMP1       equ  $D7
 SPINNER     equ  $E3
 
 ; $EB-$EF - Free Space
+SAVEX       equ  $EB
+PRINTPTRL   equ  $EC
+PRINTPTRH   equ  $ED
 
 ; $FA-$FE - Free Space
+FOUND_HDR   equ  $FA  ; $FA-FD 4 bytes
+FOUND_CHECKSUM equ FOUND_HDR
+FOUND_SECTOR equ FOUND_HDR+1
+FOUND_TRACK equ  FOUND_HDR+2
+FOUND_VOLUME equ FOUND_HDR+3
+CALC_CHKSUM equ  $FE
 
 ; $0200 - $02FF - GETLN Line Input Buffer
 
@@ -72,6 +62,7 @@ SPINNER     equ  $E3
 
 ; $0C00 - $1FFF - Free Space for Machine Language, Shapes, etc.
 DISK_BUFFER equ  $0c00 ; $c00-$cff 256 bytes
+MAP_6AND2   equ  $0d00 ; $d00-$dff 256 bytes
 
 ; $2000 - $3FFF -  High Resolution Graphics Page 1
 
@@ -172,10 +163,13 @@ Q7H         equ  $C08F ; Set WRITE mode
 ; --------------------------------------------------
 ; Address field: D5 AA 96 {2:VOL} {2:TRACK} {2:SECT} {2:CHKSUM} DE AA EB
 ; Data field   : D5 AA AD {342:DATA}                 {2:CHKSUM} DE AA EB
-FIELD0      equ  $D5
-FIELD1      equ  $AA
-FIELD2_ADDR equ  $96
-FIELD2_DATA equ  $AD
+PROLOGUE_0  equ  $D5
+PROLOGUE_1  equ  $AA
+PROLOGUE_2_ADDR equ $96
+PROLOGUE_2_DATA equ $AD
+EPILOGUE_0  equ  $DE
+EPILOGUE_1  equ  $AA
+EPILOGUE_2  equ  $EB
 
 ; --------------------------------------------------
 ; Keyboard scan codes
@@ -202,10 +196,53 @@ KBD_RIGHT   equ  $15
 .done
             endm
 
+            mac  printmessage
+.addr       equ  {1}
+            lda  .addr
+            sta  CV
+            jsr  VTAB
+            lda  .addr+1
+            sta  CH
+            ldy  #$ff
+.next       iny
+            lda  .addr+2,y
+            beq  .done
+            ora  #$80
+            jsr  COUT
+            jmp  .next
+.done
+            endm
+
             mac  readbyte
             ; Just one byte
 .readbyte   lda  Q6L,x ; read byte
             bpl  .readbyte
+            endm
+
+            mac  readbyte_y
+            ; Just one byte
+.readbyte   ldy  Q6L,x ; read byte
+            bpl  .readbyte
+            endm
+
+            mac  renderhex
+.val        equ  {1}
+.addr       equ  {2}
+            lda  .val
+            ror
+            ror
+            ror
+            ror
+            and  #$0f
+            tay
+            lda  hexchars,y
+            sta  .addr
+
+            lda  .val
+            and  #$0f
+            tay
+            lda  hexchars,y
+            sta  .addr+1
             endm
 
 
@@ -220,27 +257,28 @@ pgmstart
             jsr  CROUT
 
             ; --------------------------------------------------
-            ; Layout text
+            ; Prep 6 and 2 GCR map
             ; --------------------------------------------------
-            lda  #>target_track_pos
-            sta  CV
-            jsr  VTAB
-            lda  #$00
-            print t_target_track
+            ldy  #$00
+            lda  #$ff ; fill with $ff to denote invalid values
+prepmap1    sta  MAP_6AND2,y
+            dey
+            bne  prepmap1
 
-            lda  #>volume_pos
-            sta  CV
-            jsr  VTAB
-            lda  #$00
-            sta  CH
-            print t_volume_track_sect
+            ldy  #$3f
+prepmap2    lda  dos33_6and2,y
+            tax
+            tya
+            sta  MAP_6AND2,x ; populate reverse map
+            dey
+            bpl  prepmap2
 
-            lda  #>writeprotect_pos
-            sta  CV
-            jsr  VTAB
-            lda  #<writeprotect_pos
-            sta  CH
-            print t_write_protect
+
+            ; --------------------------------------------------
+            ; Boilerplate text
+            ; --------------------------------------------------
+            jsr  resetscreen
+            printmessage M_INSTRUCTIONS
 
 
             ; --------------------------------------------------
@@ -296,6 +334,16 @@ pgmstart
 
 
 ; --------------------------------------------------
+; Prepare for disk access
+; --------------------------------------------------
+            ldx  DISK_SLOT ; Restore X
+
+            LDA  DRV0EN,x
+            lda  MOTORON,x ; motor on
+
+            lda  Q7L,x ; read mode
+
+; --------------------------------------------------
 ; Free wheeling
 ; --------------------------------------------------
 freewheelloop
@@ -311,58 +359,167 @@ freewheelloop
             ora  #$80
             sta  $0427
 
+
+
             ; --------------------------------------------------
-            ; Prepare for disk access
+            ; Find address field:
+            ;   D5 AA 96 {2:VOL} {2:TRACK} {2:SECT} {2:CHKSUM} DE AA EB
             ; --------------------------------------------------
             ldx  DISK_SLOT ; Restore X
 
-            LDA  DRV0EN,x
-            lda  MOTORON,x ; motor on
 
-            lda  Q7L,x ; read mode
-readbyte0
-            readbyte
-chkbyte0    cmp  #FIELD0
+            ; ldy  $fc
+            ldy  $00
+            sty  TEMP1
+readbyte0   iny
+            bne  readbyte1
+            inc  TEMP1
+            beq  noheadererr
+readbyte1   readbyte
+chkbyte0    cmp  #PROLOGUE_0
             bne  readbyte0
-
-readbyte1
+            nop
             readbyte
-            cmp  #FIELD1
+            cmp  #PROLOGUE_1
             bne  chkbyte0
 
-readbyte2
-            readbyte
-            cmp  #FIELD2_ADDR
+            ldy  #$3  ; 4 bytes: vol, track, sect, checksum
+readbyte2   readbyte
+            cmp  #PROLOGUE_2_ADDR
             bne  chkbyte0
 
-            readbyte  ; Volume
-            rol
-            sta  FOUND_VOLUME
+            LDA  #$0  ; checksum
+loopreadhdr sta  CALC_CHKSUM
             readbyte
-            and  FOUND_VOLUME
-            sta  FOUND_VOLUME
-
-            readbyte  ; Track
             rol
-            sta  FOUND_TRACK
+            sta  TEMP1
             readbyte
-            and  FOUND_TRACK
-            sta  FOUND_TRACK
+            and  TEMP1
+            sta  FOUND_HDR,y
+            eor  CALC_CHKSUM
+            dey
+            bpl  loopreadhdr
+            sta  CALC_CHKSUM
+            tay
+            bne  addrchecksumerr
 
-            readbyte  ; Sector
-            rol
-            sta  FOUND_SECT
             readbyte
-            and  FOUND_SECT
-            and  #$0f
-            sta  FOUND_SECT
+            cmp  #EPILOGUE_0
+            bne  epilogerr1
 
-            jsr  showfoundvolume
-            jsr  showfoundtrack
-            jsr  showfoundsector
-            lda  FOUND_SECT
-            and  #$0f
-            jsr  touchsect
+            readbyte
+            cmp  #EPILOGUE_1
+            bne  epilogerr1
+
+            ; readbyte
+            ; cmp  #EPILOGUE_2
+            ; bne  epilogerr1
+
+            jmp  readdatafield
+noheadererr
+            lda  #'H | $80
+            sta  ADDR_FIELD_ERR_ADDR
+            jmp  readdatafield
+
+addrchecksumerr
+            lda  #'K | $80
+            sta  ADDR_FIELD_ERR_ADDR
+            jmp  readdatafield
+
+epilogerr1
+            lda  #'E | $80
+            sta  ADDR_FIELD_ERR_ADDR
+
+            ; --------------------------------------------------
+            ; Find data field:
+            ;   D5 AA AD {342:DATA}                 {2:CHKSUM} DE AA EB
+            ; --------------------------------------------------
+readdatafield
+            ldy  #$20 ; 32 attempts
+readbyte3
+            dey
+            beq  nodatafield
+            readbyte
+chkbyte3    eor  #PROLOGUE_0
+            bne  readbyte3
+            nop
+readbyte4
+            readbyte
+            cmp  #PROLOGUE_1
+            bne  chkbyte3
+
+            ldy  #(342-256) ; 86 bytes
+            readbyte
+            cmp  #PROLOGUE_2_DATA
+            bne  chkbyte3
+            ; carry is now set
+
+            ; lda  #'3 | $80
+            ; sta  ADDR_FIELD_ERR_ADDR
+
+            ; --------------------------------------------------
+            ; read bytes
+            ; --------------------------------------------------
+
+
+            ; read 86 bytes
+            lda  #$00 ; checksum
+loopbyte6   dey
+            sty  TEMP1
+            readbyte_y
+            eor  MAP_6AND2,y
+            ldy  TEMP1
+            ; sta buf2,y
+            bne  loopbyte6
+
+loopbyte7   sty  TEMP1
+            readbyte_y
+            eor  MAP_6AND2,y
+            ldy  TEMP1
+            ; sta buf1,y
+            iny
+            bne  loopbyte7
+
+            readbyte_y
+            cmp  MAP_6AND2,y
+            bne  chksumerr2
+
+            readbyte
+            cmp  #EPILOGUE_0
+            bne  epilogerr2
+
+            readbyte
+            cmp  #EPILOGUE_1
+            bne  epilogerr2
+
+            ; readbyte
+            ; cmp  #EPILOGUE_2
+            ; bne  epilogerr2
+
+            jsr  showfound
+
+
+            jmp  enddataerr
+
+chksumerr2
+
+            jsr  printhex
+            lda  #'K | $80
+            sta  DATA_FIELD_ERR_ADDR
+            jmp  enddataerr
+
+epilogerr2
+            lda  #'E | $80
+            sta  DATA_FIELD_ERR_ADDR
+            jmp  enddataerr
+
+nodatafield
+            lda  #'N | $80
+            sta  DATA_FIELD_ERR_ADDR
+            ; jmp  enddataerr
+
+enddataerr
+
 
             ; --------------------------------------------------
             ; Handle key press
@@ -410,13 +567,21 @@ showwp      ldx  DISK_SLOT
 write_protected
             lda  #'Y | $80
 end_write_protect
-            sta  writeprotect_addr
-            jsr  CROUT
+            sta  WRITE_PROTECT_ADDR
             rts
 
 ; --------------------------------------------------
 ; Helpers
 ; --------------------------------------------------
+resetscreen
+            lda  #'_ | $80
+            sta  SEEK_ERR_ADDR
+            sta  ADDR_FIELD_ERR_ADDR
+            sta  DATA_FIELD_ERR_ADDR
+            printmessage M_TARGET_TRACK
+            printmessage M_DIVIDER
+            printmessage M_VOL_TRK_SECT
+            printmessage M_WRITE_PROTECT
 clearsect   ldy  #15
 clearsectloop
             tya
@@ -439,7 +604,6 @@ touchsect   tax
             adc  #<touchsect_pos
             tax
             lda  hexchars,y
-            ora  #$80
             and  #$bf
             cmp  touchsect_addr,x
             bne  endtouchsect
@@ -454,7 +618,6 @@ printnibble
             and  #$0f
             tax
             lda  hexchars,x
-            ora  #$80
             jsr  COUT
             pla
             ldx  SAVEX
@@ -470,56 +633,30 @@ printhex
             lsr
             tax
             lda  hexchars,x
-            ora  #$80
             jsr  COUT
             pla
             pha
             and  #$0f
             tax
             lda  hexchars,x
-            ora  #$80
             jsr  COUT
             pla
             ldx  SAVEX
             rts
 
 showtrack
-            lda  #>target_track_pos
-            sta  CV
-            jsr  VTAB
-            lda  #<target_track_pos
-            sta  CH
-            lda  DISK_TRACK
-            jsr  printhex
+            renderhex DISK_TRACK,TARGET_TRACK_ADDR
             rts
 
-showfoundvolume
-            lda  #>volume_pos
-            sta  CV
-            jsr  VTAB
-            lda  #<volume_pos
-            sta  CH
-            lda  FOUND_VOLUME
-            jsr  printhex
 
-showfoundtrack
-            lda  #>track_pos
-            sta  CV
-            jsr  VTAB
-            lda  #<track_pos
-            sta  CH
-            lda  FOUND_TRACK
-            jsr  printhex
-
-showfoundsector
-            lda  #>sect_pos
-            sta  CV
-            jsr  VTAB
-            lda  #<sect_pos
-            sta  CH
-            lda  FOUND_SECT
-            jsr  printhex
-
+showfound
+            renderhex FOUND_VOLUME,VOLUME_ADDR
+            renderhex FOUND_TRACK,TRACK_ADDR
+            renderhex FOUND_SECTOR,SECTOR_ADDR
+            renderhex CALC_CHKSUM,CHKSUM_ADDR
+            lda  FOUND_SECTOR
+            jsr  touchsect
+            rts
 
 ; --------------------------------------------------
 ; Disk II
@@ -539,17 +676,21 @@ setupiob
             rts
 
 seek
+            jsr  resetscreen
             lda  #DISK_CMD_SEEK
             sta  DISK_CMD
             lda  #>DISK_IOB
             ldy  #<DISK_IOB
             jsr  RWTS
+            lda  MOTORON,x ; keep motor on
             bcs  seekerr
             php
             jsr  showtrack
-            jsr  clearsect
             plp
-seekerr     jmp  checkerr
+            bcc  noseekerr
+seekerr     lda  #'S | $80
+            sta  SEEK_ERR_ADDR
+noseekerr   rts
 
 readsect
             lda  #DISK_CMD_READ
@@ -563,14 +704,10 @@ readsect
             lda  #>DISK_IOB
             ldy  #<DISK_IOB
             jsr  RWTS
-            jmp  checkerr
-
-checkerr
             bcc  nodiskerr
-diskerr
-            print t_err
-            lda  DISK_ERR
-            jsr  printhex
+diskerr     lda  #'R | $80
+            sta  SEEK_ERR_ADDR
+            renderhex DISK_ERR,RWTS_ERR_ADDR
 nodiskerr
             rts
 
@@ -578,19 +715,113 @@ nodiskerr
 ; --------------------------------------------------
 ; Messages
 ; --------------------------------------------------
-t_target_track
-            byte "TARGET:          TRACK __",13
+SEEK_ERR_ADDR equ $0400
+ADDR_FIELD_ERR_ADDR equ $0401
+DATA_FIELD_ERR_ADDR equ $0402
+
+M_TARGET_TRACK
+            byte $01,$00 ; ypos, xpos
+            byte "TARGET VOL __   TRK __   SEC **   ERR __",0
+RWTS_ERR_ADDR equ $04A6
+
+M_DIVIDER
+            byte $02,$00 ; ypos, xpos
             byte "========================================",0
-t_write_protect byte "WRITE PROTECT _",0
-t_err       byte "ERR ",0
-t_volume_track_sect byte "READ  : VOL __   TRACK __   SECTOR __",0
+TARGET_TRACK_ADDR equ $0494
+
+M_VOL_TRK_SECT
+            byte $04, 00 ; ypos, xpos
+            byte "READ   VOL __   TRK __   SEC __   CHK __",0
+VOLUME_ADDR equ  $060b
+TRACK_ADDR  equ  $0614
+SECTOR_ADDR equ  $061D
+CHKSUM_ADDR equ  $0626
+
+M_WRITE_PROTECT
+            byte $08,$00 ; ypos, xpos
+            byte "WRITE PROTECT _",0
+WRITE_PROTECT_ADDR equ $0436
+
+M_INSTRUCTIONS
+            byte $10,$00 ; ypos, xpos
+            byte "LEFT ARROW : TRACK-",13
+            byte "RIGHT ARROW: TRACK+",0
+
+
+
+touchsect_pos equ $0404
+touchsect_addr equ $0700
+
 ; --------------------------------------------------
 ; Data
 ; --------------------------------------------------
 spinnerchars byte ":/-\\"
-hexchars    byte "0123456789ABCDEF"
+hexchars    byte '0 | $80, '1 | $80, '2 | $80, '3 | $80
+            byte '4 | $80, '5 | $80, '6 | $80, '7 | $80
+            byte '8 | $80, '9 | $80, 'A | $80, 'B | $80
+            byte 'C | $80, 'D | $80, 'E | $80, 'F | $80
+
 sects_appledos byte 0,13,11,9,7,5,3,1,14,12,10,8,6,4,2,15
 sectoffset  byte
+
+
+dos33_6and2
+            ; https://wikipedia.org/wiki/Group_coded_recording#Apple > 6-and-2
+            byte $96, $97, $9A, $9B, $9D, $9E, $9F, $A6 ; 6-bit values $00 - $07
+            byte $A7, $AB, $AC, $AD, $AE, $AF, $B2, $B3 ; 6-bit values $08 - $0f
+            byte $B4, $B5, $B6, $B7, $B9, $BA, $BB, $BC ; 6-bit values $10 - $17
+            byte $BD, $BE, $BF, $CB, $CD, $CE, $CF, $D3 ; 6-bit values $18 - $1f
+            byte $D6, $D7, $D9, $DA, $DB, $DC, $DD, $DE ; 6-bit values $20 - $27
+            byte $DF, $E5, $E6, $E7, $E9, $EA, $EB, $EC ; 6-bit values $28 - $2f
+            byte $ED, $EE, $EF, $F2, $F3, $F4, $F5, $F6 ; 6-bit values $30 - $37
+            byte $F7, $F9, $FA, $FB, $FC, $FD, $FE, $FF ; 6-bit values $38 - $3f
+
+text_rows
+            word $400,$480,$500,$580,$600,$680,$700,$780
+            word $428,$4a8,$528,$5a8,$628,$6a8,$728,$7a8
+            word $450,$4d0,$550,$5d0,$650,$6d0,$750,$7d0
+
+; PAGE
+; ; ***************************
+; ; * 7-BIT TO 6-BIT *
+; ; * 'DENIBLIZE' TABL *
+; ; * (16-SECTOR FORMAT) *
+; ; * *
+; ; * VALID CODES *
+; ; * $96 TO $FF ONLY. *
+; ; * *
+; ; * *
+; ; * CODES WITH MORE THAN *
+; ; * ONE PAIR OF ADJACENT *
+; ; * ZEROES OR WITH NO *
+; ; * ADJACENT ONES (EXCEPT *
+; ; * BIT 7) ARE EXCLUDED. *
+; ; * *
+; ; * THIS TABLE *MUST* BE *
+; ; * ALIGNED AT THE END OF *
+; ; * A PAGE IN MEMORY!!! *
+; ***************************
+; XP          EQU  <*   ;CURRENT PAGE ADDRESS
+; DNIBL       EQU  256*XP ;DNIBL TABLE PAGE
+
+; PAGE
+; ; ***************************
+; ; * *
+; ; * NYBBLE BUFFERS *
+; ; * *
+; ; * NBUF1 (256 BYTES) MUST *
+; ; * BE ALIGNED ON A PAGE *
+; ; * BOUNDARY. *
+; ; * *
+; ; * NBUF2 (86 BYTES) MUST *
+; ; * BE ALIGNED ON A PAGE *
+; ; * BOUNDARY. *
+; ; * *
+; ; ***************************
+; *
+; NBUF1       DS   256,0 ;NBUF1
+; NBUF2       DS   86,0 ;NBUF2
+
 
 PGM_END
 ; Don't add instructions after this line
