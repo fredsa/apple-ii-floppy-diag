@@ -43,8 +43,8 @@ SPINNER     equ  $E3
 
 ; $EB-$EF - Free Space
 SAVEX       equ  $EB
-PRINTPTRL   equ  $EC
-PRINTPTRH   equ  $ED
+PTRL        equ  $EC
+PTRH        equ  $ED
 
 ; $FA-$FE - Free Space
 FOUND_HDR   equ  $FA  ; $FA-FD 4 bytes
@@ -185,12 +185,12 @@ KBD_RIGHT   equ  $15
             mac  print
 .strname    equ  {1}
             lda  #<.strname
-            sta  PRINTPTRL
+            sta  PTRL
             lda  #>.strname
-            sta  PRINTPTRH
+            sta  PTRH
             ldy  #$ff
 .next       iny
-            lda  (PRINTPTRL),y
+            lda  (PTRL),y
             beq  .done
             ora  #$80
             jsr  COUT
@@ -252,6 +252,9 @@ KBD_RIGHT   equ  $15
 ; Start of program
 ; --------------------------------------------------
 pgmstart
+            ; --------------------------------------------------
+            ; Clear exit flag
+            ; --------------------------------------------------
             lda  #$00
             sta  EXIT_FLAG
 
@@ -259,7 +262,67 @@ pgmstart
             ; Clear screen
             ; --------------------------------------------------
             jsr  HOME
-            jsr  CROUT
+
+            ; --------------------------------------------------
+            ; Determine last slot / drive
+            ; --------------------------------------------------
+            lda  $BF00 ; ProDOS springboard
+            cmp  #$4C ; JMP?
+            bne  notprodos
+            lda  $BF03 ; ProDOS springboard
+            cmp  #$4C ; JMP?
+            bne  notprodos
+            lda  $BF30 ; ProDOS DEVNUM
+            and  #$7
+            sta  DISK_SLOT
+            lda  #$00 ; Drive 0
+            bit  $BF30 ; ProDOS DEVNUM
+            beq  prodosdrive
+            lda  #$01 ; Drive 1
+prodosdrive sta  DISK_DRIVE
+            jmp  endprevdevice
+notprodos
+
+            ; 48KB  $03D0: JMP 9DBF; JMP 9D84; $AA6A=06 $AA68=01
+            ; 32KB  $03D0: JMP 5DBF; JMP 5D84; $6A6A=06 $6A68=01
+            ; 16KB  $03D0: JMP 1DBF; JMP 1D84; $2A6A=06 $2A68=01
+            lda  $03D2 ; DOS 3.3 $03D0 JMP $9Dxx
+            and  #$0f
+            cmp  #$0d ; 9D/5D/1D
+            bne  notdos33
+            lda  $03D5 ; DOS 3.3 $03D3 JMP $9Dxx
+            and  #$0f
+            cmp  #$0d ; 9D/5D/1D
+            bne  notdos33
+            lda  $03D2 ; DOS 3.3 $03D0 JMP $9Dxx
+            and  #$f0 ; 9D/5D/1D -> 90/50/10
+            ora  #$0a ; 90/50/10 -> 9A/5A/1A
+            clc
+            adc  #$10 ; 9A/5A/1A -> AA/6A/2A
+            sta  PTRH
+            lda  #$00
+            sta  PTRL
+            ldy  #$6a
+            lda  (PTRL),y
+            asl
+            asl
+            asl
+            asl
+            sta  DISK_SLOT
+            ldy  #$68
+            lda  (PTRL),y
+            sta  DISK_DRIVE
+            jmp  endprevdevice
+
+
+notdos33
+            ; Default or slot 6, drive 1
+            lda  #$60
+            sta  DISK_SLOT
+            lda  #$01
+            sta  DISK_DRIVE
+
+endprevdevice
 
             ; --------------------------------------------------
             ; Prep 6 and 2 GCR map
@@ -280,21 +343,21 @@ prepmap2    lda  dos33_6and2,y
 
 
             ; --------------------------------------------------
+            ; Init IOB
+            ; --------------------------------------------------
+            lda  #$01
+            sta  DISK_IOB
+
+            lda  #$00 ; Any volume
+            sta  DISK_VOL
+
+
+            ; --------------------------------------------------
             ; Boilerplate text
             ; --------------------------------------------------
             jsr  resetscreen
             printmessage M_INSTRUCTIONS
 
-
-            ; --------------------------------------------------
-            ; Init
-            ; --------------------------------------------------
-            jsr  setupiob
-
-            ; --------------------------------------------------
-            ; Seek to desired track
-            ; --------------------------------------------------
-            ; jsr  seek
 
 ;             ; --------------------------------------------------
 ;             ; Read all sectors using RWTS
@@ -327,13 +390,19 @@ prepmap2    lda  dos33_6and2,y
 ;             bmi  nextsect
 
 
-; --------------------------------------------------
-; Prepare for disk access
-; --------------------------------------------------
+            ; --------------------------------------------------
+            ; Prepare for disk access
+            ; --------------------------------------------------
             ldx  DISK_SLOT ; restore X
 
+            lda  DISK_DRIVE
+            cmp  #0
+            beq  initdrive0
+            lda  DRV1EN,X
+            beq  initmotoron
+initdrive0
             LDA  DRV0EN,x
-            lda  MOTORON,x ; motor on
+initmotoron lda  MOTORON,x ; motor on
 
             lda  Q7L,x ; read mode
 
@@ -348,6 +417,8 @@ freewheelloop
             beq  noexit
             ldx  DISK_SLOT ; restore X
             lda  MOTOROFF,x ; motor off
+            jsr  HOME
+            printmessage M_BYE
             rts
 noexit
 
@@ -421,17 +492,17 @@ loopreadhdr sta  CALC_CHKSUM
 
             jmp  readdatafield
 noheadererr
-            lda  #'H | $80
+            lda  #'H
             sta  ADDR_FIELD_ERR_ADDR
             jmp  readdatafield
 
 addrchecksumerr
-            lda  #'K | $80
+            lda  #'K
             sta  ADDR_FIELD_ERR_ADDR
             jmp  readdatafield
 
 epilogerr1
-            lda  #'E | $80
+            lda  #'E
             sta  ADDR_FIELD_ERR_ADDR
 
             ; --------------------------------------------------
@@ -458,7 +529,7 @@ readbyte4
             bne  chkbyte3
             ; carry is now set
 
-            ; lda  #'3 | $80
+            ; lda  #'3
             ; sta  ADDR_FIELD_ERR_ADDR
 
             ; --------------------------------------------------
@@ -509,17 +580,17 @@ loopbyte7   sty  TEMP1
 chksumerr2
             sta  DATA_CHECKSUM
             jsr  renderdatachecksumbad
-            lda  #'K | $80
+            lda  #'K
             sta  DATA_FIELD_ERR_ADDR
             jmp  enddataerr
 
 epilogerr2
-            lda  #'E | $80
+            lda  #'E
             sta  DATA_FIELD_ERR_ADDR
             jmp  enddataerr
 
 nodatafield
-            lda  #'N | $80
+            lda  #'N
             sta  DATA_FIELD_ERR_ADDR
             ; jmp  enddataerr
 
@@ -530,8 +601,9 @@ enddataerr
             ; Handle key press
             ; --------------------------------------------------
             lda  KBD
-            bpl  nokey
-            sta  KBDSTRB
+            bmi  checkkeys
+            jmp  nokey
+checkkeys   sta  KBDSTRB
             and  #$7f
 
             cmp  #KBD_LEFT
@@ -587,6 +659,30 @@ nomotoron
             lda  MOTOROFF,x ; motor off
 nomotoroff
 
+            cmp  #'1
+            bne  nodrive1
+            ldx  DISK_SLOT ; restore X
+            lda  MOTOROFF,x ; motor off
+            lda  #$01
+            sta  DISK_DRIVE
+            jsr  resetscreen
+            ldx  DISK_SLOT ; restore X
+            lda  DRV0EN,x
+            lda  MOTORON,x ; motor on
+nodrive1
+
+            cmp  #'2
+            bne  nodrive2
+            ldx  DISK_SLOT ; restore X
+            lda  MOTOROFF,x ; motor off
+            lda  #$02
+            sta  DISK_DRIVE
+            jsr  resetscreen
+            ldx  DISK_SLOT ; restore X
+            lda  DRV1EN,x
+            lda  MOTORON,x ; motor on
+nodrive2
+
 nokey
             jmp  freewheelloop
 
@@ -614,11 +710,14 @@ resetscreen
             sta  SEEK_ERR_ADDR
             sta  ADDR_FIELD_ERR_ADDR
             sta  DATA_FIELD_ERR_ADDR
+            printmessage M_SLOT_DRIVE
             printmessage M_TARGET_TRACK
             printmessage M_DIVIDER
             printmessage M_VOL_TRK_SECT
             printmessage M_WRITE_PROTECT
             printmessage M_DATA_CHECKSUM
+            printmessage M_FIELDS
+
 clearsect   ldy  #15
 clearsectloop
             tya
@@ -630,6 +729,18 @@ clearsectloop
             dey
             bpl  clearsectloop
 endclearsect
+            lda  DISK_SLOT
+            clc
+            ror
+            ror
+            ror
+            ror
+            tay
+            lda  hexchars,y
+            sta  SLOT_ADDR
+            ldy  DISK_DRIVE
+            lda  hexchars,y
+            sta  DRIVE_ADDR
             rts
 
 touchsect   tax
@@ -700,27 +811,13 @@ renderdatachecksumok
 
 renderdatachecksumbad
             renderhex DATA_CHECKSUM,DATA_CHECKSUM_ADDR
-            lda  #'! | $80
+            lda  #'!
             sta  DATA_CHECKSUM_ADDR+3
             rts
 
 ; --------------------------------------------------
 ; Disk II
 ; --------------------------------------------------
-setupiob
-            lda  #$01
-            sta  DISK_IOB
-
-            lda  #$00
-            sta  DISK_VOL
-
-            lda  #$60 ; Slot 6
-            sta  DISK_SLOT
-
-            lda  #$01 ; Drive
-            sta  DISK_DRIVE
-            rts
-
 seek
             jsr  resetscreen
             lda  #DISK_CMD_SEEK
@@ -734,7 +831,7 @@ seek
             renderhex DISK_TRACK,TARGET_TRACK_ADDR
             plp
             bcc  noseekerr
-seekerr     lda  #'S | $80
+seekerr     lda  #'S
             sta  SEEK_ERR_ADDR
 noseekerr
             jsr  showwp
@@ -753,7 +850,7 @@ readsect
             ldy  #<DISK_IOB
             jsr  RWTS
             bcc  nodiskerr
-diskerr     lda  #'R | $80
+diskerr     lda  #'R
             sta  SEEK_ERR_ADDR
             renderhex DISK_ERR,RWTS_ERR_ADDR
 nodiskerr
@@ -763,9 +860,13 @@ nodiskerr
 ; --------------------------------------------------
 ; Messages
 ; --------------------------------------------------
-SEEK_ERR_ADDR equ $0400
-ADDR_FIELD_ERR_ADDR equ $0401
-DATA_FIELD_ERR_ADDR equ $0402
+M_SLOT_DRIVE
+            byte $00, $00 ; ypos,xpos
+            byte "SLOT _   DRIVE _",13
+            byte 0
+SLOT_ADDR   equ  $0405
+DRIVE_ADDR  equ  $040f
+
 
 M_TARGET_TRACK
             byte $01,$00 ; ypos, xpos
@@ -785,6 +886,9 @@ TRACK_ADDR  equ  $0614
 SECTOR_ADDR equ  $061D
 CHKSUM_ADDR equ  $0626
 
+touchsect_pos equ $0404
+touchsect_addr equ $0700
+
 M_WRITE_PROTECT
             byte $08,$00 ; ypos, xpos
             byte "WRITE PROTECT _",0
@@ -794,6 +898,13 @@ M_DATA_CHECKSUM
             byte $09,$00 ; ypos, xpos
             byte "DATA CHECKSUM __",0
 DATA_CHECKSUM_ADDR equ $04B6
+
+M_FIELDS
+            byte $0a,$00 ; ypos, xpos
+            byte "SEEK _   ADDR FIELD _    DATA FIELD _"
+SEEK_ERR_ADDR equ $052d
+ADDR_FIELD_ERR_ADDR equ $053c
+DATA_FIELD_ERR_ADDR equ $054c
 
 M_INSTRUCTIONS
             byte $0B,$00 ; ypos, xpos
@@ -808,16 +919,15 @@ M_INSTRUCTIONS
             ; byte "   0=TRACK 0        4=TRACK 34",13
             ; byte "   N=MOTOR ON       F=MOTOR OFF",13
             ; byte " ESC=EXIT",0
-            byte "MOTOR O[N] OF[F]",13
+            byte "SELECT DRIVE [1], [2]   MOTOR O[N] OF[F]",13
             byte "TRACK [0], 3[4] OR [LEFT]/[RGHT] FOR -/+",13
             byte "[ESC] EXIT",13
             byte 0
 
-
-
-
-touchsect_pos equ $0404
-touchsect_addr equ $0700
+M_BYE
+            byte $00,$00 ; ypos, xpos
+            byte "GOODBYE FOR NOW.",13
+            byte 0
 
 ; --------------------------------------------------
 ; Data
