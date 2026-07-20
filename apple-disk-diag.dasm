@@ -23,7 +23,6 @@ CH          equ  $24
 CV          equ  $25
 
 
-
 ; --------------------------------------------------
 ; Scratch space
 ; --------------------------------------------------
@@ -73,13 +72,6 @@ MAP_6AND2   equ  $0d00 ; $d00-$dff 256 bytes
 ; $6000 - $95FF -  Applesoft String Data
 
 ; --------------------------------------------------
-; ROM vectors
-; --------------------------------------------------
-BRKV        equ  $03f0 ; new vector for BRK
-SOFTEV      equ  $03f2 ; vector for warm start
-PWREDUP     equ  $03f4 ; this must = EOR #$A5 of SOFTEV+1
-
-; --------------------------------------------------
 ; ROM routines
 ; --------------------------------------------------
 VTAB        equ  $FC22
@@ -93,6 +85,12 @@ CROUT       equ  $FD8E
 ; --------------------------------------------------
 RWTS        equ  $3D9
 
+; --------------------------------------------------
+; DOS data
+; --------------------------------------------------
+DRIVNO      equ  $35
+DRV1TRK     equ  $478
+DRV2TRK     equ  $4F8
 
 ; --------------------------------------------------
 ; IOB table
@@ -107,25 +105,26 @@ DISK_SECTOR equ  $B7ED
 ;                $B7EF ; High-order byte of DCT
 DISK_BUFFPTR equ $B7F0 ; data buffer pointer
 ;                $B7F1
-;                $B7F2 ; Not used
-;                $B7F3 ; Not used
-DISK_CMD    equ  $B7F4 ; Command
-DISK_ERR    equ  $B7F5 ; Error code (or last byte of bufer read in)
-;                $B7F6 ; Actual volume
-OSLOT       equ  $B7F7 ; Prev slot
-ODRIV       equ  $B7F8 ; Prev drive
+;                $B7F2 ; data length
+;                $B7F3 ;
+DISK_CMD    equ  $B7F4 ; disk command
+DISK_ERR    equ  $B7F5 ; status error code (or last byte of bufer read in)
+;                $B7F6 ; actual volume (or status modifier?)
+OSLOT       equ  $B7F7 ; prev slot << 4
+ODRIV       equ  $B7F8 ; prev drive
 
 DISK_CMD_SEEK equ $00
 DISK_CMD_READ equ $01
 DISK_CMD_WRITE equ $02
 DISK_CMD_FORMAT equ $04
+DISK_CMD_WRITE_BOOT equ $08
 
-DISK_ERR_NONE equ $00 ; No errors
-DISK_ERR_INIT equ $08 ; Error during initialization
-DISK_ERR_WP equ  $10  ; Write protect error
-DISK_ERR_VOL equ $20  ; Volume mismatch error
-DISK_ERR_DRIVE equ $40 ; Drj.ve error
-DISK_ERR_READ equ $80 ; Read error (obsolete)
+DISK_ERR_NONE equ $00 ; no errors
+DISK_ERR_INIT equ $08 ; error during initialization
+DISK_ERR_WP equ  $10  ; write protect error
+DISK_ERR_VOL equ $20  ; volume mismatch error
+DISK_ERR_DRIVE equ $40 ; drive error
+DISK_ERR_READ equ $80 ; read error (obsolete)
 
 ; --------------------------------------------------
 ; Device characteristics table
@@ -215,6 +214,23 @@ KBD_RIGHT   equ  $15
 .done
             endm
 
+            mac  printmessageinv
+.addr       equ  {1}
+            lda  .addr
+            sta  CV
+            jsr  VTAB
+            lda  .addr+1
+            sta  CH
+            ldy  #$ff
+.next       iny
+            lda  .addr+2,y
+            beq  .done
+            and  #$3f
+            jsr  COUT
+            jmp  .next
+.done
+            endm
+
             mac  readbyte
             ; Just one byte
 .readbyte   lda  Q6L,x ; read byte
@@ -231,6 +247,7 @@ KBD_RIGHT   equ  $15
 .val        equ  {1}
 .addr       equ  {2}
             lda  .val
+            clc
             ror
             ror
             ror
@@ -244,6 +261,29 @@ KBD_RIGHT   equ  $15
             and  #$0f
             tay
             lda  hexchars,y
+            sta  .addr+1
+            endm
+
+            mac  renderhexinv
+.val        equ  {1}
+.addr       equ  {2}
+            lda  .val
+            clc
+            ror
+            ror
+            ror
+            ror
+            and  #$0f
+            tay
+            lda  hexchars,y
+            and  #$3f
+            sta  .addr
+
+            lda  .val
+            and  #$0f
+            tay
+            lda  hexchars,y
+            and  #$3f
             sta  .addr+1
             endm
 
@@ -273,12 +313,12 @@ pgmstart
             cmp  #$4C ; JMP?
             bne  notprodos
             lda  $BF30 ; ProDOS DEVNUM
-            and  #$7
+            and  #$70
             sta  DISK_SLOT
-            lda  #$00 ; Drive 0
-            bit  $BF30 ; ProDOS DEVNUM
-            beq  prodosdrive
             lda  #$01 ; Drive 1
+            bit  $BF30 ; ProDOS DEVNUM
+            bpl  prodosdrive
+            lda  #$02 ; Drive 2
 prodosdrive sta  DISK_DRIVE
             jmp  endprevdevice
 notprodos
@@ -316,13 +356,19 @@ notprodos
 
 
 notdos33
-            ; Default or slot 6, drive 1
+            ; Default to slot 6, drive 1
             lda  #$60
             sta  DISK_SLOT
             lda  #$01
             sta  DISK_DRIVE
 
 endprevdevice
+
+            ; --------------------------------------------------
+            ; Determine previous track
+            ; --------------------------------------------------
+            jsr  setdisktrack
+
 
             ; --------------------------------------------------
             ; Prep 6 and 2 GCR map
@@ -394,15 +440,14 @@ prepmap2    lda  dos33_6and2,y
             ; Prepare for disk access
             ; --------------------------------------------------
             ldx  DISK_SLOT ; restore X
-
             lda  DISK_DRIVE
-            cmp  #0
+            cmp  #1
             beq  initdrive0
             lda  DRV1EN,X
-            beq  initmotoron
+            jmp  initseek
 initdrive0
             LDA  DRV0EN,x
-initmotoron lda  MOTORON,x ; motor on
+initseek    jsr  seek
 
             lda  Q7L,x ; read mode
 
@@ -573,7 +618,7 @@ loopbyte7   sty  TEMP1
 
             jsr  renderdatachecksumok
             jsr  showfound
-
+            jsr  maybefixtrack
 
             jmp  enddataerr
 
@@ -665,7 +710,9 @@ nomotoroff
             lda  MOTOROFF,x ; motor off
             lda  #$01
             sta  DISK_DRIVE
+            jsr  setdisktrack
             jsr  resetscreen
+            jsr  debuggg
             ldx  DISK_SLOT ; restore X
             lda  DRV0EN,x
             lda  MOTORON,x ; motor on
@@ -677,7 +724,9 @@ nodrive1
             lda  MOTOROFF,x ; motor off
             lda  #$02
             sta  DISK_DRIVE
+            jsr  setdisktrack
             jsr  resetscreen
+            jsr  debuggg
             ldx  DISK_SLOT ; restore X
             lda  DRV1EN,x
             lda  MOTORON,x ; motor on
@@ -706,10 +755,6 @@ end_write_protect
 ; Helpers
 ; --------------------------------------------------
 resetscreen
-            lda  #'_ | $80
-            sta  SEEK_ERR_ADDR
-            sta  ADDR_FIELD_ERR_ADDR
-            sta  DATA_FIELD_ERR_ADDR
             printmessage M_SLOT_DRIVE
             printmessage M_TARGET_TRACK
             printmessage M_DIVIDER
@@ -717,7 +762,8 @@ resetscreen
             printmessage M_WRITE_PROTECT
             printmessage M_DATA_CHECKSUM
             printmessage M_FIELDS
-
+            printmessage M_DEBUG
+            renderhex DISK_TRACK,TARGET_TRACK_ADDR
 clearsect   ldy  #15
 clearsectloop
             tya
@@ -771,26 +817,26 @@ printnibble
             ldx  SAVEX
             rts
 
-; printhex
-;             stx  SAVEX
-;             pha
-;             and  #$f0
-;             lsr
-;             lsr
-;             lsr
-;             lsr
-;             tax
-;             lda  hexchars,x
-;             jsr  COUT
-;             pla
-;             pha
-;             and  #$0f
-;             tax
-;             lda  hexchars,x
-;             jsr  COUT
-;             pla
-;             ldx  SAVEX
-;             rts
+printhex
+            stx  SAVEX
+            pha
+            and  #$f0
+            lsr
+            lsr
+            lsr
+            lsr
+            tax
+            lda  hexchars,x
+            jsr  COUT
+            pla
+            pha
+            and  #$0f
+            tax
+            lda  hexchars,x
+            jsr  COUT
+            pla
+            ldx  SAVEX
+            rts
 
 showfound
             renderhex FOUND_VOLUME,VOLUME_ADDR
@@ -825,6 +871,7 @@ seek
             lda  #>DISK_IOB
             ldy  #<DISK_IOB
             jsr  RWTS
+            ldx  DISK_SLOT ; restore X
             lda  MOTORON,x ; keep motor on
             bcs  seekerr
             php
@@ -835,7 +882,32 @@ seekerr     lda  #'S
             sta  SEEK_ERR_ADDR
 noseekerr
             jsr  showwp
+debuggg
+
+            lda  DRV1TRK+6
+            lsr
+            sta  DRV1TRK+6
+            lda  DRV2TRK+6
+            lsr
+            sta  DRV2TRK+6
+            renderhex DRV1TRK+6, DEBUG1_ADDR
+            renderhex DRV2TRK+6, DEBUG2_ADDR
+            clc
+            lda  DRV1TRK+6
+            rol
+            sta  DRV1TRK+6
+            clc
+            lda  DRV2TRK+6
+            rol
+            sta  DRV2TRK+6
+
+            renderhex DISK_SLOT,DEBUG_SLOT1
+            renderhex DISK_DRIVE,DEBUG_SLOT2
+            renderhex OSLOT,DEBUG_DRV1
+            renderhex ODRIV,DEBUG_DRV2
+
             rts
+
 
 readsect
             lda  #DISK_CMD_READ
@@ -856,6 +928,66 @@ diskerr     lda  #'R
 nodiskerr
             rts
 
+
+setdisktrack
+            lda  DISK_SLOT
+            lsr
+            lsr
+            lsr
+            lsr
+            tay
+            lda  DISK_DRIVE
+            cmp  #$01
+            bne  prevtrackdrive2
+            lda  DRV1TRK,y
+            jmp  endprevtrack
+prevtrackdrive2
+            lda  DRV2TRK,y
+endprevtrack
+            lsr
+            sta  DISK_TRACK
+            rts
+
+maybefixtrack
+            lda  FOUND_TRACK
+            cmp  DISK_TRACK
+            bne  askfixtrack
+            rts
+askfixtrack
+            printmessage M_BAD_TRACK
+            renderhexinv FOUND_TRACK,BAD_TRACK_ADDR1
+            renderhexinv DISK_TRACK,BAD_TRACK_ADDR2
+maybefixkey lda  KBD
+            bpl  maybefixkey
+            sta  KBDSTRB
+            cmp  #'N | $80
+            beq  endfixtrack
+            cmp  #'Y | $80
+            bne  maybefixkey
+            lda  DISK_SLOT
+            lsr
+            lsr
+            lsr
+            lsr
+            tay
+            lda  DISK_DRIVE
+            cmp  #1
+            bne  maybefixdrivetrack2
+            lda  FOUND_TRACK
+            clc
+            rol
+            sta  DRV1TRK,y
+            jmp  fixtrackseek
+maybefixdrivetrack2
+            lda  FOUND_TRACK
+            clc
+            rol
+            sta  DRV2TRK,y
+fixtrackseek
+            jsr  seek
+endfixtrack
+            printmessage M_BAD_TRACK_OK
+            rts
 
 ; --------------------------------------------------
 ; Messages
@@ -906,8 +1038,28 @@ SEEK_ERR_ADDR equ $052d
 ADDR_FIELD_ERR_ADDR equ $053c
 DATA_FIELD_ERR_ADDR equ $054c
 
+M_DEBUG
+            byte $0b,$00 ; ypos, xpos
+            byte "DBG __ __ SLOT __ __ DRV __ __"
+DEBUG1_ADDR equ  $5ac
+DEBUG2_ADDR equ  $5af
+DEBUG_SLOT1 equ  $5b7
+DEBUG_SLOT2 equ  $5ba
+DEBUG_DRV1  equ  $5c1
+DEBUG_DRV2  equ  $5c4
+
+M_BAD_TRACK
+            byte $0e, 00 ; ypos, xpos
+            byte "UNEXPECTED TRACK __, SEEK TO __? [Y]/[N]",0
+M_BAD_TRACK_OK
+            byte $0e, 00 ; ypos, xpos
+            byte "                                        ",0
+BAD_TRACK_ADDR1 equ $739
+BAD_TRACK_ADDR2 equ $745
+
+
 M_INSTRUCTIONS
-            byte $0B,$00 ; ypos, xpos
+            byte $10,$00 ; ypos, xpos
             byte "========================================"
             byte 13
             ; byte "[LEFT] / [RIGHT] TO SEEK TRACK -/+",13
@@ -954,9 +1106,9 @@ dos33_6and2
             byte $F7, $F9, $FA, $FB, $FC, $FD, $FE, $FF ; 6-bit values $38 - $3f
 
 text_rows
-            word $400,$480,$500,$580,$600,$680,$700,$780
-            word $428,$4a8,$528,$5a8,$628,$6a8,$728,$7a8
-            word $450,$4d0,$550,$5d0,$650,$6d0,$750,$7d0
+            word $400,$480,$500,$580,$600,$680,$700,$780 ; rows 0-7
+            word $428,$4a8,$528,$5a8,$628,$6a8,$728,$7a8 ; row 8-15
+            word $450,$4d0,$550,$5d0,$650,$6d0,$750,$7d0 ; row 16-23
 
 ; PAGE
 ; ; ***************************
