@@ -1006,15 +1006,6 @@ M_INSTRUCTIONS
             byte $10,$00 ; ypos, xpos
             byte "========================================"
             byte 13
-            ; byte "[LEFT] / [RIGHT] TO SEEK TRACK -/+",13
-            ; byte "[0] TO SEEK TO TRACK 0, [4] TRACK 34",13
-            ; byte "[N] / [F] TO TURN MOTOR ON / OFF",13
-            ; byte "PRESS [ESC] TO EXIT",13
-            ; byte 0
-            ; byte "LEFT=TRACK-     RIGHT=TRACK+",13
-            ; byte "   0=TRACK 0        4=TRACK 34",13
-            ; byte "   N=MOTOR ON       F=MOTOR OFF",13
-            ; byte " ESC=EXIT",0
             byte "SELECT DRIVE [1], [2]   MOTOR O[N] OF[F]",13
             byte "TRACK [0], 3[4] OR [LEFT]/[RGHT] FOR -/+",13
             byte "[ESC] EXIT",13
