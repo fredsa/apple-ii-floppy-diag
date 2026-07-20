@@ -1,3 +1,11 @@
+; --------------------------------------------------
+; FLUXDOCTOR v1.0
+; Copyright Fred Sauer 2026
+; See LICENSE.txt
+;
+; Apple Disk II diagnostic utility for real-time
+; troubleshooting, diagnositcs, and repair.
+; --------------------------------------------------
             processor 6502
             org  1
 
@@ -285,22 +293,22 @@ pgmstart
             ; --------------------------------------------------
             ; Determine last slot / drive
             ; --------------------------------------------------
-            lda  $BF00 ; ProDOS springboard
-            cmp  #$4C ; JMP?
-            bne  notprodos
-            lda  $BF03 ; ProDOS springboard
-            cmp  #$4C ; JMP?
-            bne  notprodos
-            lda  $BF30 ; ProDOS DEVNUM
-            and  #$70
-            sta  DISK_SLOT
-            lda  #$01 ; Drive 1
-            bit  $BF30 ; ProDOS DEVNUM
-            bpl  prodosdrive
-            lda  #$02 ; Drive 2
-prodosdrive sta  DISK_DRIVE
-            jmp  endprevdevice
-notprodos
+;             lda  $BF00 ; ProDOS springboard
+;             cmp  #$4C ; JMP?
+;             bne  notprodos
+;             lda  $BF03 ; ProDOS springboard
+;             cmp  #$4C ; JMP?
+;             bne  notprodos
+;             lda  $BF30 ; ProDOS DEVNUM
+;             and  #$70
+;             sta  DISK_SLOT
+;             lda  #$01 ; Drive 1
+;             bit  $BF30 ; ProDOS DEVNUM
+;             bpl  prodosdrive
+;             lda  #$02 ; Drive 2
+; prodosdrive sta  DISK_DRIVE
+;             jmp  endprevdevice
+; notprodos
 
             ; DOS 3.3 relocation with different amounts of RAM
             ; 48KB  $03D0: JMP 9DBF; JMP 9D84; $AA6A=06 $AA68=01
@@ -383,6 +391,8 @@ prepmap2    lda  dos33_6and2,y
             ; --------------------------------------------------
             jsr  resetscreen
             printmessage M_INSTRUCTIONS
+            printmessage M_COPYRIGHT
+            printmessageinv M_TITLE
 
 
 ;             ; --------------------------------------------------
@@ -456,8 +466,7 @@ noexit
             sta  SPINNER
             tax
             lda  spinnerchars,x
-            ora  #$80
-            sta  $0427
+            sta  SPINNER_ADDR
 
 
 
@@ -738,6 +747,7 @@ resetscreen
             printmessage M_DIVIDER
             printmessage M_VOL_TRK_SECT
             printmessage M_WRITE_PROTECT
+            printmessage M_VERSION
             printmessage M_DATA_CHECKSUM
             printmessage M_FIELDS
             renderhex DISK_TRACK,TARGET_TRACK_ADDR
@@ -957,15 +967,20 @@ endfixtrack
 ; --------------------------------------------------
 M_SLOT_DRIVE
             byte $00, $00 ; ypos,xpos
-            byte "SLOT _   DRIVE _",13
+            byte "SLOT _   DRIVE _ _",13
             byte 0
 SLOT_ADDR   equ  $0405
 DRIVE_ADDR  equ  $040f
+SPINNER_ADDR equ $0411
 
 M_WRITE_PROTECT
             byte $00,$13 ; ypos, xpos
             byte "WRITE PROTECT _",0
 WRITE_PROTECT_ADDR equ $0421
+
+M_VERSION
+            byte $00,$24 ; ypos, xpos
+            byte "V1.0",0
 
 M_TARGET_TRACK
             byte $01,$00 ; ypos, xpos
@@ -1010,24 +1025,36 @@ BAD_TRACK_ADDR1 equ $739
 BAD_TRACK_ADDR2 equ $745
 
 
-M_INSTRUCTIONS
+M_COPYRIGHT
+            byte $10,$0f ; ypos, xpos
+            byte "COPYRIGHT FRED SAUER 2026",0
+
+M_TITLE
             byte $10,$00 ; ypos, xpos
-            byte "========================================"
-            byte 13
+            byte " FLUXDOCTOR ",0
+
+M_INSTRUCTIONS
+            byte $12,$00 ; ypos, xpos
             byte "SELECT DRIVE [1], [2]   MOTOR O[N] OF[F]",13
             byte "TRACK [0], 3[4] OR [LEFT]/[RGHT] FOR -/+",13
-            byte "[ESC] EXIT",13
+            byte "[ESC] EXIT",0
             byte 0
 
 M_BYE
             byte $00,$00 ; ypos, xpos
+            byte "THANK YOU FOR USING FLUXDOCTOR.",13
             byte "GOODBYE FOR NOW.",13
             byte 0
 
 ; --------------------------------------------------
 ; Data
 ; --------------------------------------------------
-spinnerchars byte ":/-\\"
+spinnerchars
+            byte ': | $80
+            byte '/ | $80
+            byte '- | $80
+            byte '\ | $80
+            byte '" | $80
 hexchars    byte '0 & $3F, '1 & $3F, '2 & $3F, '3 & $3F
             byte '4 & $3F, '5 & $3F, '6 & $3F, '7 & $3F
             byte '8 & $3F, '9 & $3F, 'A & $3F, 'B & $3F
