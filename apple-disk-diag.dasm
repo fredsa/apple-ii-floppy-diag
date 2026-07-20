@@ -713,7 +713,6 @@ nomotoroff
             sta  DISK_DRIVE
             jsr  setdisktrack
             jsr  resetscreen
-            jsr  debuggg
             ldx  DISK_SLOT ; restore X
             lda  DRV0EN,x
             lda  MOTORON,x ; motor on
@@ -727,7 +726,6 @@ nodrive1
             sta  DISK_DRIVE
             jsr  setdisktrack
             jsr  resetscreen
-            jsr  debuggg
             ldx  DISK_SLOT ; restore X
             lda  DRV1EN,x
             lda  MOTORON,x ; motor on
@@ -763,7 +761,6 @@ resetscreen
             printmessage M_WRITE_PROTECT
             printmessage M_DATA_CHECKSUM
             printmessage M_FIELDS
-            printmessage M_DEBUG
             renderhex DISK_TRACK,TARGET_TRACK_ADDR
 clearsect   ldy  #15
 clearsectloop
@@ -884,29 +881,6 @@ seekerr     lda  #'S
             sta  SEEK_ERR_ADDR
 noseekerr
             jsr  showwp
-debuggg
-
-            lda  DRV1TRK+6
-            lsr
-            sta  DRV1TRK+6
-            lda  DRV2TRK+6
-            lsr
-            sta  DRV2TRK+6
-            renderhex DRV1TRK+6, DEBUG1_ADDR
-            renderhex DRV2TRK+6, DEBUG2_ADDR
-            clc
-            lda  DRV1TRK+6
-            rol
-            sta  DRV1TRK+6
-            clc
-            lda  DRV2TRK+6
-            rol
-            sta  DRV2TRK+6
-
-            renderhex DISK_SLOT,DEBUG_SLOT1
-            renderhex DISK_DRIVE,DEBUG_SLOT2
-            renderhex OSLOT,DEBUG_DRV1
-            renderhex ODRIV,DEBUG_DRV2
 
             rts
 
@@ -1039,16 +1013,6 @@ M_FIELDS
 SEEK_ERR_ADDR equ $052d
 ADDR_FIELD_ERR_ADDR equ $053c
 DATA_FIELD_ERR_ADDR equ $054c
-
-M_DEBUG
-            byte $0b,$00 ; ypos, xpos
-            byte "DBG __ __ SLOT __ __ DRV __ __"
-DEBUG1_ADDR equ  $5ac
-DEBUG2_ADDR equ  $5af
-DEBUG_SLOT1 equ  $5b7
-DEBUG_SLOT2 equ  $5ba
-DEBUG_DRV1  equ  $5c1
-DEBUG_DRV2  equ  $5c4
 
 M_BAD_TRACK
             byte $0e, 00 ; ypos, xpos
