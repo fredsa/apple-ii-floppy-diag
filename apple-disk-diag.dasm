@@ -303,6 +303,7 @@ pgmstart
             ; --------------------------------------------------
             jsr  HOME
 
+
             ; --------------------------------------------------
             ; Determine last slot / drive
             ; --------------------------------------------------
@@ -789,7 +790,8 @@ endclearsect
             sta  DRIVE_ADDR
             rts
 
-touchsect   tax
+touchsect   and  #$0f ; TODO report bad sector > $0f
+            tax
             tay
             lda  sects_appledos,y
             tay
@@ -817,26 +819,26 @@ printnibble
             ldx  SAVEX
             rts
 
-printhex
-            stx  SAVEX
-            pha
-            and  #$f0
-            lsr
-            lsr
-            lsr
-            lsr
-            tax
-            lda  hexchars,x
-            jsr  COUT
-            pla
-            pha
-            and  #$0f
-            tax
-            lda  hexchars,x
-            jsr  COUT
-            pla
-            ldx  SAVEX
-            rts
+; printhex
+;             stx  SAVEX
+;             pha
+;             and  #$f0
+;             lsr
+;             lsr
+;             lsr
+;             lsr
+;             tax
+;             lda  hexchars,x
+;             jsr  COUT
+;             pla
+;             pha
+;             and  #$0f
+;             tax
+;             lda  hexchars,x
+;             jsr  COUT
+;             pla
+;             ldx  SAVEX
+;             rts
 
 showfound
             renderhex FOUND_VOLUME,VOLUME_ADDR
