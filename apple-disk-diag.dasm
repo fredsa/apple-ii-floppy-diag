@@ -980,18 +980,17 @@ CHKSUM_ADDR equ  $0626
 touchsect_pos equ $0404
 touchsect_addr equ $0700
 
-
 M_DATA_CHECKSUM
             byte $09,$00 ; ypos, xpos
-            byte "DATA CHECKSUM __",0
-DATA_CHECKSUM_ADDR equ $04B6
+            byte "SEEK ERR _       DATA CHECKSUM ERR __",0
+SEEK_ERR_ADDR equ $4b1
+DATA_CHECKSUM_ADDR equ $4cb
 
 M_FIELDS
-            byte $0a,$00 ; ypos, xpos
-            byte "SEEK _   ADDR FIELD _    DATA FIELD _"
-SEEK_ERR_ADDR equ $052d
-ADDR_FIELD_ERR_ADDR equ $053c
-DATA_FIELD_ERR_ADDR equ $054c
+            byte $0b,$00 ; ypos, xpos
+            byte "ADDR FIELD ERR _    DATA FIELD ERR _",0
+ADDR_FIELD_ERR_ADDR equ $5b7
+DATA_FIELD_ERR_ADDR equ $5cb
 
 M_BAD_TRACK
             byte $0e, 00 ; ypos, xpos
