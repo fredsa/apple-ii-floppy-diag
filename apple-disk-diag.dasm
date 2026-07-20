@@ -437,7 +437,7 @@ freewheelloop
             ; --------------------------------------------------
             ; Exit?
             ; --------------------------------------------------
-            bit  EXIT_FLAG
+            lda  EXIT_FLAG
             beq  noexit
             ldx  DISK_SLOT ; restore X
             lda  MOTOROFF,x ; motor off
