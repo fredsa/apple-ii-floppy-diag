@@ -255,27 +255,6 @@ KBD_RIGHT   equ  $15
             and  #$0f
             tay
             lda  hexchars,y
-            sta  .addr
-
-            lda  .val
-            and  #$0f
-            tay
-            lda  hexchars,y
-            sta  .addr+1
-            endm
-
-            mac  renderhexinv
-.val        equ  {1}
-.addr       equ  {2}
-            lda  .val
-            clc
-            ror
-            ror
-            ror
-            ror
-            and  #$0f
-            tay
-            lda  hexchars,y
             and  #$3f
             sta  .addr
 
@@ -538,17 +517,17 @@ loopreadhdr sta  CALC_CHKSUM
 
             jmp  readdatafield
 noheadererr
-            lda  #'H
+            lda  #'H & $3F
             sta  ADDR_FIELD_ERR_ADDR
             jmp  readdatafield
 
 addrchecksumerr
-            lda  #'K
+            lda  #'K & $3F
             sta  ADDR_FIELD_ERR_ADDR
             jmp  readdatafield
 
 epilogerr1
-            lda  #'E
+            lda  #'E & $3F
             sta  ADDR_FIELD_ERR_ADDR
 
             ; --------------------------------------------------
@@ -575,7 +554,7 @@ readbyte4
             bne  chkbyte3
             ; carry is now set
 
-            ; lda  #'3
+            ; lda  #'3 & $3F
             ; sta  ADDR_FIELD_ERR_ADDR
 
             ; --------------------------------------------------
@@ -626,17 +605,17 @@ loopbyte7   sty  TEMP1
 chksumerr2
             sta  DATA_CHECKSUM
             jsr  renderdatachecksumbad
-            lda  #'K
+            lda  #'K & $3F
             sta  DATA_FIELD_ERR_ADDR
             jmp  enddataerr
 
 epilogerr2
-            lda  #'E
+            lda  #'E & $3F
             sta  DATA_FIELD_ERR_ADDR
             jmp  enddataerr
 
 nodatafield
-            lda  #'N
+            lda  #'N & $3F
             sta  DATA_FIELD_ERR_ADDR
             ; jmp  enddataerr
 
@@ -742,10 +721,10 @@ showwp      ldx  DISK_SLOT
             lda  Q6H,x ; Sense WP
             LDA  Q7L,x ; Sense WP
             bmi  write_protected
-            lda  #'N | $80
+            lda  #'N & $3F
             jmp  end_write_protect
 write_protected
-            lda  #'Y | $80
+            lda  #'Y & $3F
 end_write_protect
             sta  WRITE_PROTECT_ADDR
             rts
@@ -877,7 +856,7 @@ seek
             renderhex DISK_TRACK,TARGET_TRACK_ADDR
             plp
             bcc  noseekerr
-seekerr     lda  #'S
+seekerr     lda  #'S & $3F
             sta  SEEK_ERR_ADDR
 noseekerr
             jsr  showwp
@@ -898,7 +877,7 @@ readsect
             ldy  #<DISK_IOB
             jsr  RWTS
             bcc  nodiskerr
-diskerr     lda  #'R
+diskerr     lda  #'R & $3F
             sta  SEEK_ERR_ADDR
             renderhex DISK_ERR,RWTS_ERR_ADDR
 nodiskerr
@@ -931,8 +910,8 @@ maybefixtrack
             rts
 askfixtrack
             printmessage M_BAD_TRACK
-            renderhexinv FOUND_TRACK,BAD_TRACK_ADDR1
-            renderhexinv DISK_TRACK,BAD_TRACK_ADDR2
+            renderhex FOUND_TRACK,BAD_TRACK_ADDR1
+            renderhex DISK_TRACK,BAD_TRACK_ADDR2
 maybefixkey lda  KBD
             bpl  maybefixkey
             sta  KBDSTRB
@@ -975,10 +954,14 @@ M_SLOT_DRIVE
 SLOT_ADDR   equ  $0405
 DRIVE_ADDR  equ  $040f
 
+M_WRITE_PROTECT
+            byte $00,$13 ; ypos, xpos
+            byte "WRITE PROTECT _",0
+WRITE_PROTECT_ADDR equ $0421
 
 M_TARGET_TRACK
             byte $01,$00 ; ypos, xpos
-            byte "TARGET VOL **   TRK **   SEC **   ERR __",0
+            byte "TARGET VOL __   TRK __   SEC __   ERR __",0
 TARGET_TRACK_ADDR equ $0494
 RWTS_ERR_ADDR equ $04A6
 
@@ -997,10 +980,6 @@ CHKSUM_ADDR equ  $0626
 touchsect_pos equ $0404
 touchsect_addr equ $0700
 
-M_WRITE_PROTECT
-            byte $08,$00 ; ypos, xpos
-            byte "WRITE PROTECT _",0
-WRITE_PROTECT_ADDR equ $0436
 
 M_DATA_CHECKSUM
             byte $09,$00 ; ypos, xpos
@@ -1051,10 +1030,10 @@ M_BYE
 ; Data
 ; --------------------------------------------------
 spinnerchars byte ":/-\\"
-hexchars    byte '0 | $80, '1 | $80, '2 | $80, '3 | $80
-            byte '4 | $80, '5 | $80, '6 | $80, '7 | $80
-            byte '8 | $80, '9 | $80, 'A | $80, 'B | $80
-            byte 'C | $80, 'D | $80, 'E | $80, 'F | $80
+hexchars    byte '0 & $3F, '1 & $3F, '2 & $3F, '3 & $3F
+            byte '4 & $3F, '5 & $3F, '6 & $3F, '7 & $3F
+            byte '8 & $3F, '9 & $3F, 'A & $3F, 'B & $3F
+            byte 'C & $3F, 'D & $3F, 'E & $3F, 'F & $3F
 
 sects_appledos byte 0,13,11,9,7,5,3,1,14,12,10,8,6,4,2,15
 sectoffset  byte
