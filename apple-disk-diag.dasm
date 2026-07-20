@@ -74,6 +74,7 @@ MAP_6AND2   equ  $0d00 ; $d00-$dff 256 bytes
 ; --------------------------------------------------
 ; ROM routines
 ; --------------------------------------------------
+BELLB       equ  $FBE2
 VTAB        equ  $FC22
 HOME        equ  $FC58
 WAIT        equ  $FCA8
@@ -908,15 +909,23 @@ maybefixtrack
             bne  askfixtrack
             rts
 askfixtrack
-            printmessage M_BAD_TRACK
+            printmessageinv M_BAD_TRACK
             renderhex FOUND_TRACK,BAD_TRACK_ADDR1
             renderhex DISK_TRACK,BAD_TRACK_ADDR2
+            jsr  BELLB
 maybefixkey lda  KBD
             bpl  maybefixkey
             sta  KBDSTRB
-            cmp  #'N | $80
+            and  #$7f
+            cmp  #$1B ; ESC
+            bne  maybefixnoesc
+            lda  #$FF
+            sta  EXIT_FLAG
+            jmp  endfixtrack
+maybefixnoesc
+            cmp  #'N
             beq  endfixtrack
-            cmp  #'Y | $80
+            cmp  #'Y
             bne  maybefixkey
             lda  DISK_SLOT
             lsr
