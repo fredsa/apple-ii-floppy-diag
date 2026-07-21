@@ -1,3 +1,11 @@
-/*.bin
-/*.wav
+# FLUXDOCTOR disk image
 fluxdoctor.do
+
+# compiled binaries
+/*.bin
+
+# c2t audio files
+/*.wav
+
+# screenshots
+/*.bmp
