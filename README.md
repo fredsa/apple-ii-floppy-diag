@@ -3,8 +3,11 @@
 Apple Disk II diagnostic utility for real-time
 troubleshooting, diagnositcs, and repair.
 
-Available as an standalone binary (`FLUXDOCTOR`), or packaged as a 140KB bootable
-DOS 3.3 floppy disk image (`FLUXDOCTOR.DO`).
+Available as a bootable DOS 3.3 (140kB) floppy disk image (`FLUXDOCTOR.DO`).
+
+`FLUXDOCTOR` currently requires a system that was booted from a DOS 3.3 disk as
+it expects a DOS 3.3 environment and utilizes `RWTS` routines for track seeks.
+
 
 # Prerequisites
 
