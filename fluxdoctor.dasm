@@ -18,11 +18,13 @@ PGM_LENGTH  equ  PGM_END - pgmstart
             seg
             org  pgmstart - 4 ; Subtract 4 bytes for header
 
+
 ; --------------------------------------------------
 ; DOS 3.3 binary header (4 bytes)
 ; --------------------------------------------------
             word pgmstart ; Program start address in memory (2 bytes)
             word PGM_LENGTH ; Program length (2 bytes), must be file size - 4
+
 
 ; --------------------------------------------------
 ; ROM address use
@@ -186,6 +188,17 @@ EPILOGUE_2  equ  $EB
 ; --------------------------------------------------
 KBD_LEFT    equ  $08
 KBD_RIGHT   equ  $15
+
+; --------------------------------------------------
+; Codes
+; --------------------------------------------------
+ERR_CODE_SEEK equ 'S & $3f
+ERR_CODE_MISSING equ 'M & $3f
+ERR_CODE_CHECKSUM equ 'K & $3f
+ERR_CODE_EPILOGUE equ 'E & $3f
+CODE_Y      equ  'Y & $3f
+CODE_N      equ  'N & $3f
+
 
 ; --------------------------------------------------
 ; Macros
@@ -390,9 +403,18 @@ prepmap2    lda  dos33_6and2,y
             ; Boilerplate text
             ; --------------------------------------------------
             jsr  resetscreen
-            printmessage M_INSTRUCTIONS
-            printmessage M_COPYRIGHT
             printmessageinv M_TITLE
+            printmessage M_COPYRIGHT
+            printmessage M_INSTRUCTIONS
+            lda  #ERR_CODE_SEEK
+            sta  ERR_CODE_SEEK_ADDR
+            lda  #ERR_CODE_MISSING
+            sta  ERR_CODE_MISSING_ADDR
+            lda  #ERR_CODE_CHECKSUM
+            sta  ERR_CODE_CHECKSUM_ADDR
+            lda  #ERR_CODE_EPILOGUE
+            sta  ERR_CODE_EPILOGUE_ADDR
+
 
 
             ; --------------------------------------------------
@@ -414,6 +436,7 @@ initseek    jsr  seek
 ; Free wheeling
 ; --------------------------------------------------
 freewheelloop
+
             ; --------------------------------------------------
             ; Exit?
             ; --------------------------------------------------
@@ -495,18 +518,18 @@ loopreadhdr sta  CALC_CHKSUM
 
             jmp  readdatafield
 noheadererr
-            lda  #'H & $3F
-            sta  ADDR_FIELD_ERR_ADDR
+            lda  #ERR_CODE_MISSING
+            sta  ADDR_FIELD_ERR_ADDR_M
             jmp  readdatafield
 
 addrchecksumerr
-            lda  #'K & $3F
-            sta  ADDR_FIELD_ERR_ADDR
+            lda  #ERR_CODE_CHECKSUM
+            sta  ADDR_FIELD_ERR_ADDR_K
             jmp  readdatafield
 
 epilogerr1
-            lda  #'E & $3F
-            sta  ADDR_FIELD_ERR_ADDR
+            lda  #ERR_CODE_EPILOGUE
+            sta  ADDR_FIELD_ERR_ADDR_E
 
             ; --------------------------------------------------
             ; Find data field:
@@ -583,18 +606,18 @@ loopbyte7   sty  TEMP1
 chksumerr2
             sta  DATA_CHECKSUM
             jsr  renderdatachecksumbad
-            lda  #'K & $3F
-            sta  DATA_FIELD_ERR_ADDR
+            lda  #ERR_CODE_CHECKSUM
+            sta  DATA_FIELD_ERR_ADDR_K
             jmp  enddataerr
 
 epilogerr2
-            lda  #'E & $3F
-            sta  DATA_FIELD_ERR_ADDR
+            lda  #ERR_CODE_EPILOGUE
+            sta  DATA_FIELD_ERR_ADDR_E
             jmp  enddataerr
 
 nodatafield
-            lda  #'N & $3F
-            sta  DATA_FIELD_ERR_ADDR
+            lda  #ERR_CODE_MISSING
+            sta  DATA_FIELD_ERR_ADDR_M
             ; jmp  enddataerr
 
 enddataerr
@@ -699,10 +722,10 @@ showwp      ldx  DISK_SLOT
             lda  Q6H,x ; Sense WP
             LDA  Q7L,x ; Sense WP
             bmi  write_protected
-            lda  #'N & $3F
+            lda  #CODE_N
             jmp  end_write_protect
 write_protected
-            lda  #'Y & $3F
+            lda  #CODE_Y
 end_write_protect
             sta  WRITE_PROTECT_ADDR
             rts
@@ -808,14 +831,13 @@ renderdatachecksumok
             lda  #'_ | $80
             sta  DATA_CHECKSUM_ADDR+0
             sta  DATA_CHECKSUM_ADDR+1
-            lda  #'  | $80
-            sta  DATA_CHECKSUM_ADDR+3
+            sta  DATA_CHECKSUM_ADDR+2
             rts
 
 renderdatachecksumbad
             renderhex DATA_CHECKSUM,DATA_CHECKSUM_ADDR
             lda  #'!
-            sta  DATA_CHECKSUM_ADDR+3
+            sta  DATA_CHECKSUM_ADDR+2
             rts
 
 ; --------------------------------------------------
@@ -835,7 +857,7 @@ seek
             renderhex DISK_TRACK,TARGET_TRACK_ADDR
             plp
             bcc  noseekerr
-seekerr     lda  #'S & $3F
+seekerr     lda  #ERR_CODE_SEEK
             sta  SEEK_ERR_ADDR
 noseekerr
             jsr  showwp
@@ -856,7 +878,7 @@ readsect
             ldy  #<DISK_IOB
             jsr  RWTS
             bcc  nodiskerr
-diskerr     lda  #'R & $3F
+diskerr     lda  #ERR_CODE_SEEK
             sta  SEEK_ERR_ADDR
             renderhex DISK_ERR,RWTS_ERR_ADDR
 nodiskerr
@@ -974,15 +996,19 @@ touchsect_addr equ $0700
 
 M_DATA_CHECKSUM
             byte $09,$00 ; ypos, xpos
-            byte "SEEK ERR _       DATA CHECKSUM ERR __",0
+            byte "SEEK ERR _         DATA CHECKSUM ERR ___",0
 SEEK_ERR_ADDR equ $4b1
-DATA_CHECKSUM_ADDR equ $4cb
+DATA_CHECKSUM_ADDR equ $4cd
 
 M_FIELDS
             byte $0b,$00 ; ypos, xpos
-            byte "ADDR FIELD ERR _    DATA FIELD ERR _",0
-ADDR_FIELD_ERR_ADDR equ $5b7
-DATA_FIELD_ERR_ADDR equ $5cb
+            byte "ADDR FIELD ERR ___    DATA FIELD ERR ___",0
+ADDR_FIELD_ERR_ADDR_M equ $5b7
+ADDR_FIELD_ERR_ADDR_K equ $5b8
+ADDR_FIELD_ERR_ADDR_E equ $5b9
+DATA_FIELD_ERR_ADDR_M equ $5cd
+DATA_FIELD_ERR_ADDR_K equ $5ce
+DATA_FIELD_ERR_ADDR_E equ $5cf
 
 M_BAD_TRACK
             byte $0e, 00 ; ypos, xpos
@@ -1004,10 +1030,15 @@ M_TITLE
 
 M_INSTRUCTIONS
             byte $12,$00 ; ypos, xpos
-            byte "SELECT DRIVE [1], [2]   MOTOR O[N] OF[F]",13
-            byte "TRACK [0], 3[4] OR [LEFT]/[RGHT] FOR -/+",13
-            byte "[ESC] EXIT",0
-            byte 0
+            byte "SELECT DRIVE [1], [2]   MOTOR O[N] OF[F]"
+            byte "TRACK [0], 3[4] OR [LEFT]/[RGHT] FOR -/+"
+            byte "                              [ESC] EXIT"
+            byte "ERROR",13
+            byte "CODES: _EEK  _ISSING  CHEC_SUM  _PILOGUE",0
+ERR_CODE_SEEK_ADDR equ $757
+ERR_CODE_MISSING_ADDR equ $75d
+ERR_CODE_CHECKSUM_ADDR equ $76a
+ERR_CODE_EPILOGUE_ADDR equ $770
 
 M_BYE
             byte $00,$00 ; ypos, xpos
