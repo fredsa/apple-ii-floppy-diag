@@ -494,6 +494,9 @@ noright
 
             cmp  #'0
             bne  nozero
+            lda  DISK_TRACK
+            cmp  #0
+            beq  nozero
             lda  #0
             sta  DISK_TRACK
             jsr  seek
@@ -502,6 +505,9 @@ nozero
 
             cmp  #'4
             bne  nofour
+            lda  DISK_TRACK
+            cmp  #34
+            beq  nofour
             lda  #34
             sta  DISK_TRACK
             jsr  seek
