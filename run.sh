@@ -40,13 +40,13 @@ cp images/hello.do fluxdoctor.do
 # ls -l fluxdoctor.do
 
 echo "Compiling:"
-echo "  fluxdoctor.dasm -> fluxdoctor.bin"
-if [[ ! -r fluxdoctor.dasm ]]; then
-    echo "MISSING: fluxdoctor.dasm" 1>&2
+echo "  fluxdoctor.asm -> fluxdoctor.bin"
+if [[ ! -r fluxdoctor.asm ]]; then
+    echo "MISSING: fluxdoctor.asm" 1>&2
     exit 1
 fi
 rm -f fluxdoctor.bin
-dasm fluxdoctor.dasm -f3 -ofluxdoctor.bin
+dasm fluxdoctor.asm -f3 -ofluxdoctor.bin
 # ls -l fluxdoctor.bin
 
 rm -f pgm.bin
